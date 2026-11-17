@@ -1,0 +1,5 @@
+pandas
+matplotlib
+scikit-learn>=1.3
+ucimlrepo
+jupyter

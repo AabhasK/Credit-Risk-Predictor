@@ -1,0 +1,162 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath}
+\usepackage{bm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage[skip=6pt]{caption}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+
+\graphicspath{{../figures/}}
+\setlist{itemsep=1pt,topsep=4pt}
+\setlength{\parskip}{0.5em}
+\setlength{\parindent}{0pt}
+
+\begin{document}
+
+% ---------- Title page ----------
+\begin{titlepage}
+\centering
+\vspace*{3cm}
+{\large Thapar Institute of Engineering and Technology, Patiala\par}
+\vspace{0.4cm}
+{Department of Computer Science and Engineering\par}
+\vspace{3cm}
+{UML501 Machine Learning\par}
+\vspace{0.4cm}
+{Project Report\par}
+\vspace{1.5cm}
+{\LARGE\bfseries Loan Default Prediction\par}
+\vspace{0.5cm}
+{Comparing classifiers on recall for defaulters\par}
+\vspace{3.5cm}
+\begin{minipage}[t]{0.48\textwidth}
+\raggedright
+\textbf{Submitted by}\\[0.4em]
+Aabhas Khandelwal (1024030673)\\
+Joy Soni (1024030674)
+\end{minipage}\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\raggedleft
+\textbf{Submitted to}\\[0.4em]
+Mr.\ Deepak Sharma
+\end{minipage}
+\vfill
+{November 2026\par}
+\end{titlepage}
+
+\setcounter{page}{1}
+
+% ---------- 1 ----------
+\section{Introduction}
+
+A bank can make two mistakes on a loan: reject a good applicant, or approve one who later defaults. The second loses the money lent, so it costs far more. Our goal is to predict default from an applicant's financial profile and catch as many real defaulters as possible.
+
+We compare Logistic Regression, Decision Tree and Random Forest. Since only 30\% of applicants default, a model that always says ``no default'' is already 70\% accurate, so we judge the models mainly on recall (sensitivity) for defaulters, and track specificity to see the cost to good applicants.
+
+% ---------- 2 ----------
+\section{Dataset and Cleaning}
+
+We use the UCI Statlog German Credit dataset~\cite{uci}: 1000 applicants, 7 numeric and 13 categorical features, 700 good and 300 bad (default) outcomes. Category codes such as A11 were mapped to readable labels.
+
+\begin{itemize}
+  \item No blank cells and no duplicate rows.
+  \item Hidden missing values: ``unknown'' savings (183 rows, 17.5\% default) and ``unknown'' property (154 rows, 43.5\% default). Since ``unknown'' carries signal, we kept it as its own category.
+  \item Outliers by the IQR rule: 70 long loans and 72 large loans, which default at 57\% and 54\% against 30\% overall. They are real loans and the riskiest applicants, so we kept them.
+\end{itemize}
+
+% ---------- 3 ----------
+\section{Methodology}
+
+The data is split 80/20 with stratification, giving 800 training and 200 test rows (60 defaulters in the test set). Numeric columns are imputed with the median and standardised; categorical columns are imputed with the most common value and one-hot encoded, giving 61 columns. All steps sit in a scikit-learn~\cite{sklearn} \texttt{Pipeline}, so they are fitted on training data only and there is no data leakage.
+
+\textbf{Models.} Logistic Regression predicts $P(y=1 \mid \mathbf{x}) = \sigma(\mathbf{w}^\top\mathbf{x} + b)$ and flags default when this is at least 0.5. The Decision Tree splits on Gini impurity with depth capped at 5. Random Forest votes over 100 trees~\cite{mitchell,alpaydin}.
+
+\textbf{Class imbalance.} We retrain every model with balanced class weights
+\begin{equation}
+  w_c = \frac{n}{k\,n_c},
+\end{equation}
+where $n$ is the number of rows, $k = 2$ classes and $n_c$ the rows in class $c$. A mistake on a defaulter then costs about 2.3 times more during training.
+
+\textbf{Metrics.} With default as the positive class:
+\begin{equation}
+  \text{Recall} = \frac{TP}{TP+FN}, \qquad
+  \text{Specificity} = \frac{TN}{TN+FP}, \qquad
+  F_1 = \frac{2 \cdot \text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}}
+\end{equation}
+We also run 5-fold stratified cross-validation to check that the test split is not a lucky one.
+
+\newpage
+% ---------- 4 ----------
+\section{Results}
+
+\begin{table}[H]
+\centering
+\caption{Test set results before and after balancing.}
+\begin{tabular}{llccccc}
+\toprule
+Setting & Model & Accuracy & Precision & Recall & Specificity & F1 \\
+\midrule
+\multirow{3}{*}{Baseline} & Logistic Regression & 0.780 & 0.667 & 0.533 & 0.886 & 0.593 \\
+ & Decision Tree & 0.645 & 0.420 & 0.483 & 0.714 & 0.450 \\
+ & Random Forest & 0.780 & 0.735 & 0.417 & 0.936 & 0.532 \\
+\midrule
+\multirow{3}{*}{Balanced} & Logistic Regression & 0.750 & 0.558 & \textbf{0.800} & 0.729 & \textbf{0.658} \\
+ & Decision Tree & 0.570 & 0.377 & 0.667 & 0.529 & 0.482 \\
+ & Random Forest & 0.770 & 0.617 & 0.617 & 0.836 & 0.617 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{5-fold cross-validation with balanced weights (mean).}
+\begin{tabular}{lcccc}
+\toprule
+Model & Accuracy & Recall & Specificity & F1 \\
+\midrule
+Logistic Regression & 0.719 & \textbf{0.720} & 0.719 & \textbf{0.606} \\
+Decision Tree & 0.636 & 0.660 & 0.626 & 0.520 \\
+Random Forest & 0.735 & 0.547 & 0.816 & 0.553 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.46\textwidth]{recall_compare.png}\hfill
+\includegraphics[width=0.52\textwidth]{top_features.png}
+\caption{Left: recall before and after balancing. Right: largest Logistic Regression coefficients (positive pushes towards default).}
+\label{fig:recall}
+\end{figure}
+
+The baseline models reach up to 78\% accuracy but catch at most about half of the defaulters. Balancing raises recall for all three. Logistic Regression goes from 0.53 to 0.80 (48 of 60 defaulters caught instead of 32, Figure~\ref{fig:cm}), while specificity falls from 0.89 to 0.73. Rejecting a few more good applicants is the right trade in lending. Cross-validation gives the same ranking. Random Forest gains the least, since its fully grown trees end in almost pure leaves that reweighting barely changes.
+
+We chose balanced Logistic Regression as the final model: best recall and F1, and easy to explain. A negative checking balance, savings under 100~DM and no property raise the risk (Figure~\ref{fig:recall}).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.45\textwidth]{cm_final.png}
+\caption{Confusion matrix of balanced Logistic Regression on the test set: 48 of 60 defaulters caught, 12 missed.}
+\label{fig:cm}
+\end{figure}
+
+% ---------- 5 ----------
+\section{Conclusion}
+
+Accuracy hides the problem in imbalanced credit data. Measuring recall and balancing the class weights raised the share of defaulters caught from 53\% to 80\%, and cross-validation confirmed the gain. Future work: tune the decision threshold, drop sensitive attributes such as sex, and test on a larger dataset.
+
+\begin{thebibliography}{9}
+\bibitem{uci} H.~Hofmann, \emph{Statlog (German Credit Data)}, UCI Machine Learning Repository, 1994. \url{https://doi.org/10.24432/C5NC77}
+\bibitem{sklearn} F.~Pedregosa et al., ``Scikit-learn: Machine Learning in Python,'' \emph{JMLR}, vol.~12, pp.~2825--2830, 2011.
+\bibitem{mitchell} T.~Mitchell, \emph{Machine Learning}, McGraw Hill, 1997.
+\bibitem{alpaydin} E.~Alpaydin, \emph{Introduction to Machine Learning}, 3rd ed., MIT Press, 2014.
+\end{thebibliography}
+
+\end{document}
