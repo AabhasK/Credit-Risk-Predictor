@@ -31,7 +31,7 @@ htmlcov/
 .nox/
 .mypy_cache/
 .ruff_cache/
-
+figures/
 # Jupyter Notebook
 .ipynb_checkpoints/
 

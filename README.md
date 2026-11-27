@@ -2,7 +2,7 @@
 
 UML501 Machine Learning project by Aabhas Khandelwal (1024030673) and Joy Soni (1024030674), submitted to Mr. Deepak Sharma.
 
-We predict loan default on the UCI German Credit dataset with Logistic Regression, Decision Tree and Random Forest, judged on recall for defaulters. Balanced class weights raise recall from 0.53 to 0.80 for Logistic Regression, which is the final model.
+We predict loan default on the UCI German Credit dataset with Logistic Regression, Decision Tree, Random Forest, XGBoost and LightGBM, judged on recall for defaulters. Balanced class weights raise recall from 0.53 to 0.80 for Logistic Regression. Hyperparameter tuning and ROC-AUC confirm it as the final model.
 
 ## Files
 

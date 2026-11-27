@@ -7,6 +7,7 @@
 \usepackage{bm}
 \usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{array}
 \usepackage{multirow}
 \usepackage{float}
 \usepackage[skip=6pt]{caption}
@@ -80,7 +81,7 @@ A credit decision can go wrong in two ways:
   \item \textbf{Reject a good applicant.} The bank loses the interest it would have earned.
   \item \textbf{Approve an applicant who later defaults.} The bank loses the money it lent.
 \end{itemize}
-The second mistake costs far more than the first. This makes loan default prediction a good example of a problem where plain accuracy is the wrong way to judge a model. In this project we build three classifiers and judge them on how many real defaulters they catch.
+The second mistake costs far more than the first. This makes loan default prediction a good example of a problem where plain accuracy is the wrong way to judge a model. In this project we build five classifiers, from a linear model to gradient boosting, and judge them on how many real defaulters they catch.
 
 % ---------- 2 ----------
 \section{Problem Statement and Objectives}
@@ -91,10 +92,11 @@ The second mistake costs far more than the first. This makes loan default predic
 \begin{enumerate}
   \item Clean and explore the UCI German Credit dataset, and decide how to treat hidden missing values and outliers.
   \item Build a leak-free preprocessing pipeline for numeric and categorical features.
-  \item Train and compare Logistic Regression, Decision Tree and Random Forest.
+  \item Train and compare Logistic Regression, Decision Tree and Random Forest, then test whether gradient boosting (XGBoost, LightGBM) does better.
   \item Use recall (sensitivity) on defaulters as the main metric, and report specificity to show the cost to good applicants.
   \item Handle the class imbalance with balanced class weights and measure the gain.
-  \item Check the results with 5-fold stratified cross-validation, choose a final model and explain its decisions.
+  \item Tune the hyperparameters of every model with a cross-validated grid search on the training data.
+  \item Check the results with 5-fold stratified cross-validation and ROC-AUC, choose a final model and explain its decisions.
 \end{enumerate}
 
 % ---------- 3 ----------
@@ -215,7 +217,7 @@ Figure~\ref{fig:eda} shows that the features carry real signal. Applicants with 
 % ---------- 5 ----------
 \section{Machine Learning Algorithms}
 
-We compare three classifiers of increasing flexibility~\cite{mitchell,alpaydin}.
+We compare five classifiers of increasing flexibility~\cite{mitchell,alpaydin}.
 
 \textbf{Logistic Regression.} A linear model that predicts the probability of default:
 \begin{equation}
@@ -227,11 +229,15 @@ where $\mathbf{x}$ is the applicant's feature vector, $\mathbf{w}$ the learned w
 
 \textbf{Random Forest.} An ensemble of 100 decision trees. Each tree is trained on a bootstrap sample of the rows and considers a random subset of features at each split. The forest averages the trees' votes, which reduces the variance of a single tree.
 
+\textbf{XGBoost and LightGBM.} Gradient boosting models~\cite{xgboost,lightgbm}. They build trees one after another, and each new tree is fitted to correct the errors of the trees before it. XGBoost grows trees level by level. LightGBM grows them leaf by leaf, which is faster on large data. Both often win on large tabular datasets, so we use them to test whether a more powerful model helps on our small one.
+
+\textbf{Hyperparameter tuning.} Every model has settings that are not learned from the data, such as the regularisation strength $C$ of Logistic Regression or the depth of a tree. We tune them with \texttt{GridSearchCV}, which tries every combination in a grid with 5-fold stratified cross-validation and keeps the best one. The search runs on the training data only, and it is scored on $F_1$. Accuracy would undo the class weights, and recall alone is maximised by rejecting everyone.
+
 \textbf{Handling class imbalance.} By default, every training mistake counts the same, so the model learns mostly from the 70\% majority. We retrain every model with balanced class weights:
 \begin{equation}
   w_c = \frac{n}{k\,n_c}
 \end{equation}
-where $n$ is the number of training rows, $k = 2$ is the number of classes and $n_c$ is the number of rows in class $c$. On the 800 training rows this gives $w_1 \approx 1.67$ for defaulters and $w_0 \approx 0.71$ for good applicants, so a mistake on a defaulter costs about 2.3 times more during training.
+where $n$ is the number of training rows, $k = 2$ is the number of classes and $n_c$ is the number of rows in class $c$. On the 800 training rows this gives $w_1 \approx 1.67$ for defaulters and $w_0 \approx 0.71$ for good applicants, so a mistake on a defaulter costs about 2.3 times more during training. XGBoost has no \texttt{class\_weight} option, so we give it the same weighting with \texttt{scale\_pos\_weight} $= 560/240 \approx 2.33$.
 
 \textbf{Metrics.} Default is the positive class. TP, FP, TN and FN are the true positives, false positives, true negatives and false negatives.
 \begin{gather}
@@ -241,6 +247,8 @@ where $n$ is the number of training rows, $k = 2$ is the number of classes and $
   F_1 = \frac{2 \cdot \text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}}
 \end{gather}
 Recall is the share of real defaulters that the model catches. Specificity is the share of good applicants that the model correctly approves.
+
+Every model outputs a probability of default, and we flag default when it is at least 0.5. The \textbf{ROC curve} plots recall against the false positive rate ($1 - \text{specificity}$) for every possible threshold. \textbf{ROC-AUC} is the area under this curve. A value of 1.0 means the model ranks every defaulter above every good applicant, and 0.5 is a random guess. AUC does not depend on the threshold, so it measures how well a model ranks applicants.
 
 % ---------- 6 ----------
 \section{Workflow}
@@ -269,13 +277,17 @@ Table~\ref{tab:results} shows the test set results. The baseline models reach up
 \toprule
 Setting & Model & Accuracy & Precision & Recall & Specificity & F1 \\
 \midrule
-\multirow{3}{*}{Baseline} & Logistic Regression & 0.780 & 0.667 & 0.533 & 0.886 & 0.593 \\
+\multirow{5}{*}{Baseline} & Logistic Regression & 0.780 & 0.667 & 0.533 & 0.886 & 0.593 \\
  & Decision Tree & 0.645 & 0.420 & 0.483 & 0.714 & 0.450 \\
  & Random Forest & 0.780 & 0.735 & 0.417 & 0.936 & 0.532 \\
+ & XGBoost & 0.755 & 0.608 & 0.517 & 0.857 & 0.559 \\
+ & LightGBM & 0.730 & 0.565 & 0.433 & 0.857 & 0.491 \\
 \midrule
-\multirow{3}{*}{Balanced} & Logistic Regression & 0.750 & 0.558 & \textbf{0.800} & 0.729 & \textbf{0.658} \\
+\multirow{5}{*}{Balanced} & Logistic Regression & 0.750 & 0.558 & \textbf{0.800} & 0.729 & \textbf{0.658} \\
  & Decision Tree & 0.570 & 0.377 & 0.667 & 0.529 & 0.482 \\
  & Random Forest & 0.770 & 0.617 & 0.617 & 0.836 & 0.617 \\
+ & XGBoost & 0.740 & 0.569 & 0.550 & 0.821 & 0.559 \\
+ & LightGBM & 0.715 & 0.525 & 0.533 & 0.793 & 0.529 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -290,11 +302,13 @@ Model & Baseline & Balanced \\
 Logistic Regression & 32 & \textbf{48} \\
 Decision Tree & 29 & 40 \\
 Random Forest & 25 & 37 \\
+XGBoost & 31 & 33 \\
+LightGBM & 26 & 32 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Balancing raises recall for all three models. Logistic Regression goes from 0.53 to 0.80, so it catches 48 of the 60 defaulters instead of 32. The price is specificity, which falls from 0.89 to 0.73: the model now rejects 38 good applicants instead of 16. In lending this is the right trade. The Decision Tree gains recall but loses a lot of accuracy, so it is the weakest model. Random Forest gains the least.
+Balancing raises recall for all five models. Logistic Regression goes from 0.53 to 0.80, so it catches 48 of the 60 defaulters instead of 32. The price is specificity, which falls from 0.89 to 0.73: the model now rejects 38 good applicants instead of 16. In lending this is the right trade. The Decision Tree gains recall but loses a lot of accuracy, so it is the weakest model. The boosting models gain the least: XGBoost only moves from 0.52 to 0.55, and LightGBM from 0.43 to 0.53. Their trees fit the training data closely, so reweighting changes their decisions less than it changes a linear model.
 
 \begin{figure}[H]
 \centering
@@ -312,30 +326,90 @@ Balancing raises recall for all three models. Logistic Regression goes from 0.53
 
 \subsection{Cross-validation}
 
-One 80/20 split has only 60 defaulters in the test set, so one lucky split could change the numbers a lot. We repeated the balanced training with 5-fold stratified cross-validation on all 1000 rows. The pipeline is refitted inside every fold, so there is no leakage.
+One 80/20 split has only 60 defaulters in the test set, so one lucky split could change the numbers a lot. We repeated the balanced training with 5-fold stratified cross-validation on all 1000 rows, and also recorded ROC-AUC. The pipeline is refitted inside every fold, so there is no leakage.
 
 \begin{table}[H]
 \centering
-\caption{5-fold stratified cross-validation with balanced weights (mean $\pm$ standard deviation).}
+\caption{5-fold stratified cross-validation of the five balanced models (mean $\pm$ standard deviation).}
 \label{tab:cv}
 \small
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{lccccc}
+\begin{tabular}{lcccc}
 \toprule
-Model & Accuracy & Precision & Recall & Specificity & F1 \\
+Model & Recall & Specificity & F1 & ROC-AUC \\
 \midrule
-Logistic Regression & 0.719 $\pm$ 0.027 & 0.524 $\pm$ 0.034 & \textbf{0.720} $\pm$ 0.041 & 0.719 $\pm$ 0.029 & \textbf{0.606} $\pm$ 0.034 \\
-Decision Tree & 0.636 $\pm$ 0.037 & 0.435 $\pm$ 0.029 & 0.660 $\pm$ 0.077 & 0.626 $\pm$ 0.080 & 0.520 $\pm$ 0.021 \\
-Random Forest & 0.735 $\pm$ 0.012 & 0.561 $\pm$ 0.022 & 0.547 $\pm$ 0.016 & 0.816 $\pm$ 0.018 & 0.553 $\pm$ 0.014 \\
+Logistic Regression & \textbf{0.720} $\pm$ 0.041 & 0.719 $\pm$ 0.029 & \textbf{0.606} $\pm$ 0.034 & \textbf{0.786} $\pm$ 0.019 \\
+Decision Tree & 0.660 $\pm$ 0.077 & 0.626 $\pm$ 0.080 & 0.520 $\pm$ 0.021 & 0.670 $\pm$ 0.025 \\
+Random Forest & 0.547 $\pm$ 0.016 & 0.816 $\pm$ 0.018 & 0.553 $\pm$ 0.014 & 0.778 $\pm$ 0.027 \\
+XGBoost & 0.550 $\pm$ 0.039 & 0.840 $\pm$ 0.013 & 0.571 $\pm$ 0.028 & 0.766 $\pm$ 0.016 \\
+LightGBM & 0.543 $\pm$ 0.031 & 0.810 $\pm$ 0.032 & 0.547 $\pm$ 0.021 & 0.776 $\pm$ 0.026 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Cross-validated recall for Logistic Regression is 0.72, lower than the 0.80 on the single test split, but it is still clearly the best of the three models. The ranking does not change, so the conclusion holds.
+Cross-validated recall for Logistic Regression is 0.72, lower than the 0.80 on the single test split, but it is still clearly the best of the five models. The ranking does not change, so the conclusion holds. Without tuning, both boosting models behave like Random Forest. They have high specificity (0.81 to 0.84) but low recall (about 0.55), and their ROC-AUC is no better than that of Logistic Regression. With only 1000 rows, boosting has little room to beat a linear model.
+
+\subsection{Hyperparameter tuning}
+
+Table~\ref{tab:grid} shows the grid searched for each model and the best setting found on the training data. Table~\ref{tab:tuned} compares the default and tuned models on the test set.
+
+\begin{table}[H]
+\centering
+\caption{Grid search (5-fold CV on the 800 training rows, scored on F1).}
+\label{tab:grid}
+\small
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.2\textwidth}>{\raggedright\arraybackslash}p{0.42\textwidth}>{\raggedright\arraybackslash}p{0.28\textwidth}}
+\toprule
+Model & Grid & Best setting \\
+\midrule
+Logistic Regression & $C \in \{0.01, 0.03, 0.1, 0.3, 1, 3, 10\}$ & $C = 0.03$ \\
+Decision Tree & depth $\in \{2,3,4,5,7,\text{none}\}$, min leaf $\in \{1,5,10,20\}$ & depth 5, min leaf 1 \\
+Random Forest & trees $\in \{200,500\}$, depth $\in \{4,6,10,\text{none}\}$, min leaf $\in \{1,3,5,10\}$, features $\in \{\sqrt{p}, 0.3\}$ & 200 trees, depth 10, min leaf 5, features 0.3 \\
+XGBoost & trees $\in \{100,300\}$, depth $\in \{2,3,5\}$, learning rate $\in \{0.03,0.1\}$, subsample $\in \{0.8,1\}$ & 100 trees, depth 3, learning rate 0.1, subsample 0.8 \\
+LightGBM & trees $\in \{100,300\}$, leaves $\in \{4,8,16\}$, learning rate $\in \{0.03,0.1\}$, min child $\in \{10,30\}$ & 100 trees, 8 leaves, learning rate 0.03, min child 10 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Default and tuned models on the test set (60 defaulters).}
+\label{tab:tuned}
+\begin{tabular}{llccccc}
+\toprule
+Setting & Model & Accuracy & Precision & Recall & Specificity & F1 \\
+\midrule
+\multirow{5}{*}{Default} & Logistic Regression & 0.750 & 0.558 & \textbf{0.800} & 0.729 & \textbf{0.658} \\
+ & Decision Tree & 0.570 & 0.377 & 0.667 & 0.529 & 0.482 \\
+ & Random Forest & 0.770 & 0.617 & 0.617 & 0.836 & 0.617 \\
+ & XGBoost & 0.740 & 0.569 & 0.550 & 0.821 & 0.559 \\
+ & LightGBM & 0.715 & 0.525 & 0.533 & 0.793 & 0.529 \\
+\midrule
+\multirow{5}{*}{Tuned} & Logistic Regression & 0.720 & 0.522 & 0.800 & 0.686 & 0.632 \\
+ & Decision Tree & 0.570 & 0.377 & 0.667 & 0.529 & 0.482 \\
+ & Random Forest & 0.710 & 0.512 & 0.717 & 0.707 & 0.597 \\
+ & XGBoost & 0.750 & 0.568 & 0.700 & 0.771 & 0.627 \\
+ & LightGBM & 0.685 & 0.482 & 0.683 & 0.686 & 0.566 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Tuning helps the tree ensembles most. Random Forest recall rises from 0.62 to 0.72, and XGBoost recall rises from 0.55 to 0.70. Limiting tree depth and leaf size stops them from fitting the majority class too closely. Logistic Regression gains nothing: the search picks stronger regularisation ($C = 0.03$), which keeps recall at 0.80 but lowers specificity. The search keeps depth 5 for the Decision Tree, which is the value we already use. No tuned model beats the default balanced Logistic Regression on recall or F1.
+
+\subsection{ROC curve}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.62\textwidth]{roc.png}
+\caption{ROC curves of the five balanced models on the test set.}
+\label{fig:roc}
+\end{figure}
+
+Logistic Regression has the highest curve and the best AUC (0.81). Random Forest (0.79), LightGBM (0.77) and XGBoost (0.76) are close behind, and the Decision Tree (0.60) is close to a random guess (Figure~\ref{fig:roc}). AUC does not depend on the 0.5 threshold, so this confirms that Logistic Regression ranks applicants best, and not only that it suits the 0.5 cut-off.
 
 \subsection{Final model and feature importance}
 
-We chose balanced Logistic Regression as the final model. It has the best recall and F1, both on the test set and in cross-validation, and it is the easiest model to explain. A bank must be able to say why it rejected an application, and with Logistic Regression each feature has one weight.
+We chose balanced Logistic Regression as the final model. It has the best recall, F1 and ROC-AUC, both on the test set and in cross-validation. Neither gradient boosting nor tuning beat it, and it is the easiest model to explain. A bank must be able to say why it rejected an application, and with Logistic Regression each feature has one weight.
 
 \begin{figure}[H]
 \centering
@@ -349,7 +423,7 @@ A negative checking balance, savings under 100~DM, unknown property and loans fo
 % ---------- 8 ----------
 \section{Project Implementation / Screenshots}
 
-The project is a single Jupyter notebook in Python, using pandas, matplotlib and scikit-learn. The code and data are on GitHub at \url{https://github.com/AabhasK/Credit-Risk-Predictor}.
+The project is a single Jupyter notebook in Python, using pandas, matplotlib, scikit-learn, XGBoost and LightGBM. The code and data are on GitHub at \url{https://github.com/AabhasK/Credit-Risk-Predictor}.
 
 \textbf{Loading the data.} The notebook reads the local file if it exists. Otherwise it downloads the dataset with \texttt{ucimlrepo}. The target is recoded so that 1 means default.
 
@@ -382,6 +456,9 @@ def make_models(class_weight=None):
         "Decision Tree": DecisionTreeClassifier(max_depth=5, class_weight=class_weight,
                                                 random_state=42),
         "Random Forest": RandomForestClassifier(class_weight=class_weight, random_state=42),
+        "XGBoost": XGBClassifier(scale_pos_weight=spw if class_weight == "balanced" else 1,
+                                 eval_metric="logloss", random_state=42),
+        "LightGBM": LGBMClassifier(class_weight=class_weight, random_state=42, verbose=-1),
     }
     return {name: Pipeline([("prep", make_prep()), ("clf", clf)])
             for name, clf in models.items()}
@@ -401,6 +478,17 @@ def make_models(class_weight=None):
 \caption{5-fold stratified cross-validation.}
 \end{figure}
 
+\textbf{Hyperparameter tuning.} The search wraps the whole pipeline, so preprocessing is refitted inside every fold. Parameter names start with \texttt{clf\_\_} because the model sits in the pipeline under the name \texttt{clf}.
+
+\begin{lstlisting}
+tuned = {}
+for name, pipe in make_models("balanced").items():
+    gs = GridSearchCV(pipe, grids[name], scoring="f1", cv=cv, n_jobs=-1)
+    gs.fit(X_train, y_train)          # training data only
+    tuned[name] = gs.best_estimator_
+metrics(tuned)                        # test set, used once
+\end{lstlisting}
+
 \textbf{Predicting a new applicant.} We start from a typical applicant (median of each numeric column, most common value of each categorical column) and make three risky changes: a 9000~DM loan, a 36-month term and a negative checking balance. All three balanced models score this applicant above 80\% default risk.
 
 \begin{figure}[H]
@@ -418,6 +506,8 @@ def make_models(class_weight=None):
   \item \textbf{Misleading accuracy.} Accuracy rewarded the wrong behaviour, so we had to choose recall and specificity as the main metrics.
   \item \textbf{Hidden missing values and outliers.} The usual fixes (fill with the mode, drop the outliers) would have removed useful signal. We checked the default rate of each group before deciding to keep them.
   \item \textbf{Small test set.} 60 defaulters in the test set make single-split results noisy. Cross-validation was needed to trust the ranking.
+  \item \textbf{Honest tuning.} Tuning on the test set would inflate the reported scores. We searched on the training data only, and chose F1 as the search score, because accuracy undoes the class weights and recall alone rewards rejecting everyone.
+  \item \textbf{Weighting XGBoost.} XGBoost has no \texttt{class\_weight} option, so we matched the balanced weighting with \texttt{scale\_pos\_weight}.
 \end{itemize}
 
 \textbf{Limitations.}
@@ -426,26 +516,28 @@ def make_models(class_weight=None):
   \item \textbf{Fixed threshold.} We used a 0.5 cut-off. The best threshold depends on the real cost of each error, which we do not know.
   \item \textbf{Sensitive attributes.} The data contains sex, marital status and foreign-worker status. A real credit model should not use these features, and should be audited for fairness.
   \item \textbf{Counter-intuitive weights.} Some coefficients are surprising. For example, a ``critical account'' credit history lowers the predicted risk. Logistic Regression shows correlation in this data, not cause.
-  \item \textbf{Limited tuning.} We did not tune hyperparameters beyond the tree depth.
+  \item \textbf{Small grids.} The grid searches are small, and the best settings were chosen on 800 rows, so they may not be the best for other data.
 \end{itemize}
 
 % ---------- 10 ----------
 \section{Conclusion and Future Scope}
 
-\textbf{Conclusion.} Accuracy hides the real problem in imbalanced credit data. By measuring recall on defaulters and training with balanced class weights, we raised the share of defaulters caught by Logistic Regression from 53\% to 80\% on the test set (72\% in cross-validation). Specificity fell from 0.89 to 0.73, which is an acceptable trade in lending. Balanced Logistic Regression is our final model: it has the best recall and F1 of the three models, and every decision can be explained through its weights.
+\textbf{Conclusion.} Accuracy hides the real problem in imbalanced credit data. By measuring recall on defaulters and training with balanced class weights, we raised the share of defaulters caught by Logistic Regression from 53\% to 80\% on the test set (72\% in cross-validation). Specificity fell from 0.89 to 0.73, which is an acceptable trade in lending. More complex models did not help: XGBoost and LightGBM caught fewer defaulters than Logistic Regression, and hyperparameter tuning improved the tree ensembles but did not lift any of them above it. Balanced Logistic Regression is our final model: it has the best recall, F1 and ROC-AUC of the five models, and every decision can be explained through its weights.
 
 \textbf{Future scope.}
 \begin{itemize}
-  \item Tune the decision threshold with a cost matrix (for example, a missed defaulter costs 5 times a rejected good applicant).
+  \item Tune the decision threshold with a cost matrix (the dataset's documentation says a missed defaulter costs 5 times a rejected good applicant), validated on more data than our 60 test defaulters.
   \item Remove sensitive attributes and measure fairness across groups.
-  \item Try gradient boosting (XGBoost, LightGBM) and tune hyperparameters with cross-validation.
-  \item Use ROC-AUC and precision-recall curves for threshold-free comparison.
+  \item Explain the boosting models with SHAP values, and try larger tuning grids with nested cross-validation.
+  \item Add precision-recall curves, which focus on the minority class.
   \item Test on a larger and more recent credit dataset, and deploy the model as a simple web form for credit officers.
 \end{itemize}
 
 \begin{thebibliography}{9}
 \bibitem{uci} H.~Hofmann, \emph{Statlog (German Credit Data)}, UCI Machine Learning Repository, 1994. \url{https://doi.org/10.24432/C5NC77}
 \bibitem{sklearn} F.~Pedregosa et al., ``Scikit-learn: Machine Learning in Python,'' \emph{JMLR}, vol.~12, pp.~2825--2830, 2011.
+\bibitem{xgboost} T.~Chen and C.~Guestrin, ``XGBoost: A Scalable Tree Boosting System,'' in \emph{Proc. 22nd ACM SIGKDD}, 2016, pp.~785--794.
+\bibitem{lightgbm} G.~Ke et al., ``LightGBM: A Highly Efficient Gradient Boosting Decision Tree,'' in \emph{Advances in Neural Information Processing Systems 30}, 2017.
 \bibitem{mitchell} T.~Mitchell, \emph{Machine Learning}, McGraw Hill, 1997.
 \bibitem{alpaydin} E.~Alpaydin, \emph{Introduction to Machine Learning}, 3rd ed., MIT Press, 2014.
 \end{thebibliography}
