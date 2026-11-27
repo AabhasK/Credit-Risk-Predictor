@@ -19,3 +19,11 @@ jupyter notebook MLproject.ipynb
 ```
 
 Run all cells in order.
+
+## Demo
+
+```
+python app.py
+```
+
+Open http://127.0.0.1:7860. The app trains the same five balanced models on the same split as the notebook, then scores an applicant you enter in the form.

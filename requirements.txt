@@ -5,3 +5,4 @@ ucimlrepo
 xgboost
 lightgbm
 jupyter
+gradio
